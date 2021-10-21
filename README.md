@@ -39,6 +39,7 @@ Table of contents
          * [Overriding Values](#overriding-values)
          * [Validating Values](#validating-values)
          * [Custom Wrapper](#custom-wrapper)
+         * [Encode null values](#encode-null-values)
       * [Contributions](#contributions)
       * [License](#license)
       * [Contact](#contact)
@@ -140,7 +141,7 @@ let user = try User.decode(from: json)
 #### CodableDate
 
 This wrapper allows decoding dates on per-property strategy basis. By default, `CodableDate` uses the `iso8601` strategy. The built-in strategies are: 
-`iso8601, rfc2822, rfc3339 and timestamp`. There is also the option of using a custom format by providing a valid string format to the option `.format()`.
+`iso8601`, `iso8601WithMillisecondPrecision`, `rfc2822`, `rfc3339`, and `timestamp`. There is also the option of using a custom format by providing a valid string format to the option `.format()`.
 
 ```Swift
 struct Dates: Kodable {
@@ -169,6 +170,7 @@ print(dates.rfc3339Date.description) // Prints "1996-12-20 00:39:57 +0000"
 print(dates.timestamp.description) // Prints "2001-01-01 00:00:00 +0000"
 ````
 
+Note that there's no built-in support for ISO8601 dates with precision greater than millisecond (e.g. microsecond or nanosecond), because Apple doesn't officially supports such precision natively, yet. Should you feel the necessity to have those, or any other custom date formatter, you can implement your own `DateConvertible` and use `.custom(dateConvertible)` DateCodingStrategy. If you think your use case should make its way into the official library, PRs are always welcome!
 
 ## Advanced Usage
 
@@ -345,6 +347,49 @@ And voilà
 ```Swift
 struct Test: Kodable {
     @CodingURL("html_url") var url: URL
+}
+```
+
+### Encode Null Values
+
+By default optional values won't be encoded so: 
+
+```swift
+struct User: Kodable {
+    @Coding var firstName: String
+    @Coding var lastName: String?
+}
+
+let user = User()
+user.firstName = "João"
+```
+
+When encoded will output: 
+
+```js
+{
+    "firstName": "João"
+}
+```
+
+However, if you want to explicitly encode null values, then you can set `encodeAsNullIfNil` property to be true: 
+
+```swift
+struct User: Kodable {
+    @Coding var firstName: String
+    @Coding(encodeAsNullIfNil: true) var lastName: String?
+}
+
+let user = User()
+user.firstName = "João"
+```
+
+Which will then output: 
+
+```js
+{
+    "firstName": "João",
+    "lastName": null
 }
 ```
 

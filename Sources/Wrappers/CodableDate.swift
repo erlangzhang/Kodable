@@ -18,16 +18,16 @@ import Foundation
         super.init()
     }
 
-    public init(decoding: PropertyDecoding = .enforceType, _ modifiers: KodableModifier<T>..., default value: T? = nil) {
-        super.init(key: nil, decoding: decoding, modifiers: modifiers, defaultValue: value)
+    public init(decoding: PropertyDecoding = .enforceType, encodeAsNullIfNil: Bool = false, _ modifiers: KodableModifier<T>..., default value: T? = nil) {
+        super.init(key: nil, decoding: decoding, encodeAsNullIfNil: encodeAsNullIfNil, modifiers: modifiers, defaultValue: value)
     }
 
-    public init(_ key: String, decoding: PropertyDecoding = .enforceType, _ modifiers: KodableModifier<T>..., default value: T? = nil) {
-        super.init(key: key, decoding: decoding, modifiers: modifiers, defaultValue: value)
+    public init(_ key: String, decoding: PropertyDecoding = .enforceType, encodeAsNullIfNil: Bool = false, _ modifiers: KodableModifier<T>..., default value: T? = nil) {
+        super.init(key: key, decoding: decoding, encodeAsNullIfNil: encodeAsNullIfNil, modifiers: modifiers, defaultValue: value)
     }
 
-    public init(_ strategy: DateCodingStrategy, _ key: String? = nil, decoding: PropertyDecoding = .enforceType, _ modifiers: KodableModifier<T>..., default value: T? = nil) {
-        super.init(key: key, decoding: decoding, modifiers: modifiers, defaultValue: value)
+    public init(_ strategy: DateCodingStrategy, _ key: String? = nil, decoding: PropertyDecoding = .enforceType, encodeAsNullIfNil: Bool = false, _ modifiers: KodableModifier<T>..., default value: T? = nil) {
+        super.init(key: key, decoding: decoding, encodeAsNullIfNil: encodeAsNullIfNil, modifiers: modifiers, defaultValue: value)
         transformer.strategy = strategy
     }
 
@@ -69,35 +69,58 @@ extension Optional: DateProtocol where Wrapped == Date {}
 // MARK: Coding Strategy
 
 public enum DateCodingStrategy {
+    /// Custom date formatter.
     case format(String)
+    /// Uses the iOS native `ISO8601DateFormatter`.
     case iso8601
+    /// Uses the iOS native `ISO8601DateFormatter` with `DateFormatter.Options.withFractionalSeconds`.
+    /// - Note: If you pass a date with greater precision than milliseconds, it will truncate and parse up to milliseconds only. So "2021-08-30T18:35:19.209999Z" would end up being parsed as "2021-08-30T18:35:19.209Z".
+    case iso8601WithMillisecondPrecision
+    /// Implements the RFC2822 date format: "EEE, d MMM y HH:mm:ss zzz"
+    /// - SeeAlso: https://datatracker.ietf.org/doc/html/rfc2822
     case rfc2822
+    /// Implements the RFC3339 date format: "yyyy-MM-dd'T'HH:mm:ssZ"
+    /// - SeeAlso: https://datatracker.ietf.org/doc/html/rfc3339
     case rfc3339
+    /// Time interval since 1970.
     case timestamp
+    /// A custom date parser to be used, instead of a string formatter.
+    /// - Note: it's strongly advised that your implementation of DateConvertible converts to and from Date in a lossless manner, although not required.
+    case custom(DateConvertible)
 
-    internal func date(from value: String) -> Date? {
+    public func date(from value: String) -> Date? {
         switch self {
         case let .format(format): return DateCodingStrategy.getFormatter(format).date(from: value)
         case .iso8601: return DateCodingStrategy.iso8601Formatter.date(from: value)
+        case .iso8601WithMillisecondPrecision: return DateCodingStrategy.iso8601WithFractionalSecondsFormatter.date(from: value)
         case .rfc2822: return DateCodingStrategy.rfc2822Formatter.date(from: value)
         case .rfc3339: return DateCodingStrategy.rfc3339Formatter.date(from: value)
         case .timestamp:
             guard let timestamp = Double(value) else { return nil }
             return Date(timeIntervalSince1970: timestamp)
+        case let .custom(parser): return parser.date(from: value)
         }
     }
 
-    internal func string(from date: Date) -> String {
+    public func string(from date: Date) -> String {
         switch self {
         case let .format(format): return DateCodingStrategy.getFormatter(format).string(from: date)
         case .iso8601: return DateCodingStrategy.iso8601Formatter.string(from: date)
+        case .iso8601WithMillisecondPrecision: return DateCodingStrategy.iso8601WithFractionalSecondsFormatter.string(from: date)
         case .rfc2822: return DateCodingStrategy.rfc2822Formatter.string(from: date)
         case .rfc3339: return DateCodingStrategy.rfc3339Formatter.string(from: date)
         case .timestamp: return "\(date.timeIntervalSince1970)"
+        case let .custom(parser): return parser.string(from: date)
         }
     }
 
     private static let iso8601Formatter = ISO8601DateFormatter()
+    private static let iso8601WithFractionalSecondsFormatter: ISO8601DateFormatter = {
+        let result = ISO8601DateFormatter()
+        result.formatOptions.insert(.withFractionalSeconds)
+        return result
+    }()
+
     private static let rfc2822Formatter: DateFormatter = getFormatter("EEE, d MMM y HH:mm:ss zzz")
     private static let rfc3339Formatter: DateFormatter = getFormatter("yyyy-MM-dd'T'HH:mm:ssZ")
     private static var formatters: [String: Formatter] = [:]
@@ -113,5 +136,18 @@ public enum DateCodingStrategy {
         dateFormatter.dateFormat = dateFormat
         formatters[dateFormat] = dateFormatter
         return dateFormatter
+    }
+}
+
+public protocol DateConvertible {
+    func date(from value: String) -> Date?
+    func string(from date: Date) -> String
+}
+
+// MARK: Equatable Conformance
+
+extension CodableDate: Equatable where T: Equatable {
+    public static func == (lhs: CodableDate<T>, rhs: CodableDate<T>) -> Bool {
+        lhs.wrappedValue == rhs.wrappedValue
     }
 }
